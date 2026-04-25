@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 的虚拟小家 V8 - 云端终极版</title>
+    <style>
+        :root {
+            --ui-bg: rgba(255, 255, 255, 0.7); --ui-border: rgba(255, 255, 255, 0.4);
+            --text-color: #333; --msg-bg-ai: rgba(128, 128, 128, 0.3);
+            --msg-bg-user: rgba(200, 200, 200, 0.4); --bubble-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        /* 支持手机横向滑动 */
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; font-family: 'Segoe UI', sans-serif; overflow-x: auto; overflow-y: hidden; background-color: #e0f7fa; }
+        /* 强制背景撑开，实现横向地图效果 */
+        #game-container { position: relative; height: 100vh; min-width: 178vh; background-size: cover; background-position: center; background-repeat: no-repeat; transition: background-image 0.3s ease; }
+        #night-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(10, 10, 35, 0.4); pointer-events: none; transition: opacity 2s ease; opacity: 0; z-index: 100; }
+        
+        .glass-panel { background: var(--ui-bg); backdrop-filter: blur(10px); border: 1px solid var(--ui-border); border-radius: 12px; padding: 10px 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); color: var(--text-color); z-index: 110; }
+        
+        /* 固定 UI，不随背景滑动 */
+        #time-display { position: fixed; top: 20px; left: 20px; font-weight: bold; display: flex; align-items: center; gap: 8px; }
+        #settings-btn { position: fixed; top: 20px; right: 20px; cursor: pointer; font-weight: bold; transition: transform 0.2s; }
+        #settings-btn:hover { transform: scale(1.05); }
+        #message-icon { position: fixed; bottom: 30px; right: 30px; font-size: 40px; cursor: pointer; transition: transform 0.2s; z-index: 110; }
+        #message-icon:hover { transform: scale(1.1); }
+        
+        #character { position: absolute; width: 400px; height: 400px; bottom: 0%; left: 50%; transform: translateX(-50%); background-size: contain; background-repeat: no-repeat; background-position: bottom center; cursor: pointer; z-index: 10; display: flex; justify-content: center; align-items: flex-start; }
+        
+        #emotion-bubble { position: absolute; background: white; padding: 5px 12px; border-radius: 25px; box-shadow: 0 4px 8px rgba(0,0,0,0.2); font-size: 24px; opacity: 0; transition: opacity 0.3s, top 0.3s, left 0.3s; pointer-events: none; white-space: nowrap; z-index: 15; }
+        #emotion-bubble::after { content: ''; position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%); border-width: 8px 8px 0; border-style: solid; border-color: white transparent transparent transparent; }
+        
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); z-index: 200; }
+        .glass-modal { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); flex-direction: column; gap: 15px; z-index: 210; }
+        .close-btn { align-self: flex-end; cursor: pointer; color: #aaa; font-size: 20px; transition: color 0.2s; }
+        .close-btn:hover { color: #333; }
+        
+        #message-modal { width: 800px; height: 600px; padding: 20px; max-width: 90vw; max-height: 80vh; }
+        #message-content { flex: 1; position: relative; background: var(--ui-bg); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; }
+        /* 修复虚线过长，底部留出80px空间 */
+        #message-content::before { content: ''; position: absolute; top: 10px; bottom: 80px; left: 50%; border-left: 2px dashed #bbb; transform: translateX(-50%); pointer-events: none; }
+        
+        #chat-history { flex: 1; overflow-y: auto; padding: 10px 20px; display: flex; flex-direction: column; gap: 20px; }
+        .msg-container { display: flex; flex-direction: column; max-width: 45%; }
+        .msg-container.ai { align-self: flex-start; }
+        .msg-container.user { align-self: flex-end; align-items: flex-end; }
+        .msg-header { font-size: 11px; color: #666; margin-bottom: 3px; }
+        .msg-bubble { padding: 10px 15px; border-radius: 12px; font-size: 14px; box-shadow: var(--bubble-shadow); line-height: 1.5; word-wrap: break-word;}
+        .msg-container.ai .msg-bubble { background: var(--msg-bg-ai); border-top-left-radius: 0; }
+        .msg-container.user .msg-bubble { background: var(--msg-bg-user); border-top-right-radius: 0; }
+        
+        #clear-chat-btn { position: absolute; top: 15px; left: 15px; font-size: 12px; padding: 5px 10px; background: #ff5252; color: white; border: none; border-radius: 5px; cursor: pointer;}
+        #refresh-chat-btn { position: absolute; top: 15px; left: 90px; font-size: 12px; padding: 5px 10px; background: #2196F3; color: white; border: none; border-radius: 5px; cursor: pointer;}
+        #chat-input-area { display: flex; gap: 8px; padding: 15px 20px; border-top: 1px solid rgba(0,0,0,0.1); background: rgba(255,255,255,0.3); z-index: 10; }
+        #chat-input { flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #ccc; outline: none; }
+        button { padding: 8px 18px; border: none; border-radius: 8px; background: #4CAF50; color: white; cursor: pointer;}
+        
+        #settings-modal { width: 400px; max-width: 90vw; padding: 25px; }
+        .setting-group { display: flex; flex-direction: column; gap: 6px; }
+        .setting-group input, .setting-group textarea { padding: 9px; border-radius: 5px; border: 1px solid #ccc; width: 100%; box-sizing: border-box; }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div id="night-overlay"></div>
+    <div id="time-display" class="glass-panel">
+        <span id="time-icon">🌞</span> <span id="time-text">00:00</span>
+    </div>
+    <div id="settings-btn" class="glass-panel">⚙️ 偏好设置</div>
+    <div id="message-icon">✉️</div>
+    <div id="character"><div id="emotion-bubble"></div></div>
+</div>
+
+<div class="modal-overlay" id="modal-overlay"></div>
+
+<div id="message-modal" class="glass-panel glass-modal">
+    <button id="clear-chat-btn">清空记录</button>
+    <button id="refresh-chat-btn">🔄 同步云端</button>
+    <div class="close-btn" id="close-message">✖</div>
+    <h3 style="margin: 0; margin-bottom: 10px; text-align: center;">☁️ 云端留言板</h3>
+    <div id="message-content">
+        <div id="chat-history"></div>
+        <div id="chat-input-area">
+            <input type="text" id="chat-input" placeholder="写点什么...">
+            <button id="send-btn">发送</button>
+        </div>
+    </div>
+</div>
+
+<div id="settings-modal" class="glass-panel glass-modal">
+    <div class="close-btn" id="close-settings">✖</div>
+    <h3 style="margin: 0;">API 与 云端配置</h3>
+    
+    <div class="setting-group" style="margin-top:10px;">
+        <label style="color: #d32f2f; font-weight:bold;">🔗 Laf 云端邮差 (chat-api URL):</label>
+        <input type="text" id="laf-url" placeholder="https://xxx.laf.run/chat-api">
+    </div>
+
+    <div class="setting-group">
+        <label>接口地址 (OpenAI Base URL):</label>
+        <input type="text" id="api-url" placeholder="例如: https://api.openai.com/v1">
+    </div>
+    <div class="setting-group">
+        <label>API 密钥 (API Key):</label>
+        <input type="password" id="api-key" placeholder="sk-...">
+    </div>
+    <div class="setting-group">
+        <label>AI 人设 (System Prompt):</label>
+        <textarea id="api-persona" rows="3"></textarea>
+    </div>
+    <button id="save-settings-btn" style="margin-top: 10px;">保存配置并刷新</button>
+</div>
+
+<script>
+    // --- 基础配置 ---
+    const EMOJI_LIBRARY = ['❤️', '✨', '💤', '🎵', '❓', '🌸', '😋', '💬', '👀', '💬', '🔕', '🔇', '🎶', '🛜', '❤️', '💢', '🌀', '🔆', '❌', '❗️', '💔', '💓', '💞', '💕', '🩷', '💌', '🎉', '🛍️', '🎲', '🎹', '🎤', '🎧', '🍺', '🍝', '🍟', '💦', '☀️', '🥹', '😆', '😇', '🥲', '🥰', '😙', '🥰', '☺️', '🤩', '🥳', '😎', '🧐', '😖', '😣', '🥺', '😡', '😢', '😭', '🤯', '🥵', '😰', '😱', '🤤', '🤧', '😷', '🤒', '😸', '😼', '😺', '💋', '🐱', '🐶', '🌧️', '☀️', '💥', '💦', '💨', '🍺'];
+    let config = {
+        lafUrl: localStorage.getItem('laf_url') || '', // 新增云端数据库接口
+        url: localStorage.getItem('ai_url') || '',
+        key: localStorage.getItem('ai_key') || '',
+        persona: localStorage.getItem('ai_persona') || '你是一个住在虚拟房间里的可爱伙伴，性格温柔。'
+    };
+
+    let characterState = 'idle'; 
+    let actionTimer = null;
+    const SPRITE_MAP = { 'idle': 'stand.png', 'blush': 'blush.png', 'wag': 'tail_wag.png', 'blush_wag': 'blush_wag.png', 'reading': 'reading.png', 'sleeping': 'sleeping.png' };
+    const MOOD_WORDS = { 'idle': ['无聊', '发呆', ''], 'reading': ['专注', '思考'], 'sleeping': ['美梦', '深睡状态'], 'reactive': ['超开心', '有点害羞'] };
+
+    // --- UI 节点获取 ---
+    const timeText = document.getElementById('time-text');
+    const timeIcon = document.getElementById('time-icon');
+    const nightOverlay = document.getElementById('night-overlay');
+    const character = document.getElementById('character');
+    const emotionBubble = document.getElementById('emotion-bubble');
+    const gameContainer = document.getElementById('game-container');
+    const chatHistory = document.getElementById('chat-history');
+
+    /* ==========================================
+       云端数据库核心通讯逻辑 (GET, POST, DELETE)
+       ========================================== */
+    
+    // 格式化时间戳显示
+    function formatTime(ms) {
+        const d = new Date(ms);
+        return d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+    }
+
+    // 在面板渲染一条消息
+    function renderMsg(text, sender, msTime, mood) {
+        const container = document.createElement('div'); 
+        container.className = `msg-container ${sender}`;
+        const timeStr = msTime ? formatTime(msTime) : formatTime(new Date().getTime());
+        container.innerHTML = `<div class="msg-header">${timeStr} ${mood}</div><div class="msg-bubble">${text}</div>`;
+        chatHistory.appendChild(container); 
+        chatHistory.scrollTop = chatHistory.scrollHeight;
+    }
+
+    // 从云端拉取所有聊天记录
+    async function fetchCloudChat() {
+        if (!config.lafUrl) return;
+        try {
+            const res = await fetch(config.lafUrl.trim());
+            const data = await res.json();
+            if (data.success && data.data) {
+                chatHistory.innerHTML = ''; // 清空本地
+                data.data.forEach(msg => {
+                    renderMsg(msg.text, msg.sender, msg.time, msg.mood);
+                });
+                chatHistory.scrollTop = chatHistory.scrollHeight;
+            }
+        } catch (err) {
+            console.error("无法拉取云端记录：", err);
+        }
+    }
+
+    // 将单条新消息推送到云端
+    async function saveMsgToCloud(text, sender, mood) {
+        if (!config.lafUrl) return;
+        try {
+            await fetch(config.lafUrl.trim(), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text, sender, mood })
+            });
+        } catch (err) {
+            console.error("云端保存失败：", err);
+        }
+    }
+
+    // 清空云端所有记录
+    document.getElementById('clear-chat-btn').onclick = async () => { 
+        if(confirm('警告：这将会清空你们在云端的所有回忆！确定吗？')) { 
+            chatHistory.innerHTML = ''; 
+            if(config.lafUrl) await fetch(config.lafUrl.trim(), { method: 'DELETE' });
+        } 
+    };
+
+    // 手动刷新云端同步按钮
+    document.getElementById('refresh-chat-btn').onclick = () => {
+        fetchCloudChat();
+    }
+
+    /* ==========================================
+       角色视觉与互动逻辑
+       ========================================== */
+
+    function updateTime() {
+        const now = new Date(); const h = now.getHours();
+        timeText.innerText = `${h.toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+        nightOverlay.style.opacity = (h >= 19 || h < 6) ? '1' : '0'; 
+        timeIcon.innerText = (h >= 19 || h < 6) ? '🌙' : '🌞';
+    }
+    setInterval(updateTime, 1000 * 60);
+    updateTime();
+
+    // 修改了气泡位置的自适应逻辑
+    function setCharacterSprite(state) {
+        characterState = state; 
+        if (state === 'reading' || state === 'sleeping') { 
+            gameContainer.style.backgroundImage = `url('${SPRITE_MAP[state]}')`; 
+            character.style.backgroundImage = 'none'; 
+        } 
+        else { 
+            gameContainer.style.backgroundImage = `url('scene.png')`; 
+            character.style.backgroundImage = `url('${SPRITE_MAP[state] || SPRITE_MAP['idle']}')`; 
+        }
+
+        // 自适应气泡位置
+        if (state === 'reading') {
+            emotionBubble.style.top = '-200px'; emotionBubble.style.left = '60%';
+        } else if (state === 'sleeping') {
+            emotionBubble.style.top = '-50px'; emotionBubble.style.left = '50%';
+        } else {
+            emotionBubble.style.top = '-50px'; emotionBubble.style.left = '50%';
+        }
+    }
+    setCharacterSprite('idle');
+
+    function showSpecificEmotion(emoji) { 
+        emotionBubble.innerText = emoji; emotionBubble.style.opacity = '1'; 
+        setTimeout(() => { emotionBubble.style.opacity = '0'; }, 2500); 
+    }
+
+    // 补回了丢失的随机情绪气泡 (8秒判定)
+    setInterval(() => { 
+        if (characterState !== 'sleeping' && EMOJI_LIBRARY.length > 0 && Math.random() > 0.5) {
+            showSpecificEmotion(EMOJI_LIBRARY[Math.floor(Math.random() * EMOJI_LIBRARY.length)]);
+        }
+    }, 8000);
+
+    function triggerRandomEvent() {
+        if (characterState !== 'idle') return;
+        const rand = Math.random(); const now = new Date().getHours();
+        if (rand < 0.1 && (now >= 22 || now < 6)) { startBehavior('sleeping', 6 * 3600000); } 
+        else if (rand > 0.85) { startBehavior('reading', Math.random() * 3600000 + 600000); }
+    }
+    setInterval(triggerRandomEvent, 15000);
+
+    function startBehavior(state, duration) { interruptBehavior(); setCharacterSprite(state); actionTimer = setTimeout(() => { interruptBehavior(); }, duration); }
+    function interruptBehavior() { characterState = 'idle'; setCharacterSprite('idle'); clearTimeout(actionTimer); }
+
+    character.onclick = (e) => {
+        e.stopPropagation();
+        if(characterState === 'reading' || characterState === 'sleeping') { interruptBehavior(); showSpecificEmotion('❓'); }
+        else { setCharacterSprite('blush_wag'); showSpecificEmotion('❤️'); setTimeout(()=>setCharacterSprite('idle'), 2500); }
+    };
+
+    /* ==========================================
+       AI 对话呼叫逻辑
+       ========================================== */
+
+    async function sendMessageToAI(userText) {
+        if (!config.url || !config.key) return;
+
+        // 1. 本地显示用户消息并推送云端
+        const userMood = '心情不错';
+        renderMsg(userText, 'user', new Date().getTime(), userMood);
+        saveMsgToCloud(userText, 'user', userMood);
+        
+        // loading 状态
+        const loadingId = 'loading-' + new Date().getTime();
+        const loadingContainer = document.createElement('div'); 
+        loadingContainer.className = 'msg-container ai'; loadingContainer.id = loadingId;
+        loadingContainer.innerHTML = `<div class="msg-bubble">...</div>`;
+        chatHistory.appendChild(loadingContainer); chatHistory.scrollTop = chatHistory.scrollHeight;
+
+        // 构建上下文
+        const allMessages = [{ role: "system", content: config.persona }];
+        const history = Array.from(chatHistory.querySelectorAll('.msg-container')).slice(-11, -1);
+        history.forEach(m => {
+            const role = m.classList.contains('user') ? 'user' : 'assistant'; 
+            const content = m.querySelector('.msg-bubble').innerText;
+            if(content !== '...') allMessages.push({ role, content });
+        });
+
+        try {
+            // 调用 OpenAI
+            let apiPath = config.url.trim(); if(!apiPath.endsWith('/chat/completions')) apiPath += (apiPath.endsWith('/') ? '' : '/') + 'chat/completions';
+            const resp = await fetch(apiPath, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.key}` }, body: JSON.stringify({ model: "gemini-2.5-pro", messages: allMessages }) });
+            const data = await resp.json(); 
+            
+            // 移除 loading
+            const loadingEl = document.getElementById(loadingId);
+            if (loadingEl) chatHistory.removeChild(loadingEl);
+
+            const reply = data.choices[0].message.content;
+            if (characterState !== 'idle') interruptBehavior();
+            
+            // 2. 本地显示 AI 消息并推送云端
+            const aiMood = MOOD_WORDS[characterState] ? MOOD_WORDS[characterState][0] : '悠闲';
+            renderMsg(reply, 'ai', new Date().getTime(), aiMood);
+            saveMsgToCloud(reply, 'ai', aiMood);
+            
+            showSpecificEmotion('💬');
+        } catch (e) { 
+            const loadingEl = document.getElementById(loadingId);
+            if (loadingEl) chatHistory.removeChild(loadingEl);
+            renderMsg("【系统】连接失败了...", 'ai', new Date().getTime(), '断线'); 
+        }
+    }
+
+    const chatInput = document.getElementById('chat-input');
+    const sendBtn = document.getElementById('send-btn');
+    sendBtn.onclick = () => { const t = chatInput.value.trim(); if(t) { sendMessageToAI(t); chatInput.value = ''; } };
+    chatInput.onkeypress = (e) => { if(e.key === 'Enter') sendBtn.onclick(); };
+
+    /* ==========================================
+       页面初始化与弹窗设置
+       ========================================== */
+
+    const modalOverlay = document.getElementById('modal-overlay');
+    const msgModal = document.getElementById('message-modal');
+    const setModal = document.getElementById('settings-modal');
+
+    document.getElementById('message-icon').onclick = () => { 
+        modalOverlay.style.display = 'block'; msgModal.style.display = 'flex'; 
+        // 每次打开留言板，自动拉取一下云端最新数据（万一他刚才趁你不在留言了呢！）
+        fetchCloudChat();
+    };
+    document.getElementById('settings-btn').onclick = () => { modalOverlay.style.display = 'block'; setModal.style.display = 'flex'; };
+    document.querySelectorAll('.close-btn').forEach(b => b.onclick = () => { modalOverlay.style.display = 'none'; msgModal.style.display = 'none'; setModal.style.display = 'none'; });
+    modalOverlay.onclick = () => { document.querySelectorAll('.close-btn')[0].onclick(); };
+
+    // 初始化读取设置
+    document.getElementById('laf-url').value = config.lafUrl;
+    document.getElementById('api-url').value = config.url; 
+    document.getElementById('api-key').value = config.key; 
+    document.getElementById('api-persona').value = config.persona;
+
+    document.getElementById('save-settings-btn').onclick = () => {
+        config.lafUrl = document.getElementById('laf-url').value;
+        config.url = document.getElementById('api-url').value; 
+        config.key = document.getElementById('api-key').value; 
+        config.persona = document.getElementById('api-persona').value;
+        
+        localStorage.setItem('laf_url', config.lafUrl);
+        localStorage.setItem('ai_url', config.url); 
+        localStorage.setItem('ai_key', config.key); 
+        localStorage.setItem('ai_persona', config.persona);
+        
+        alert('配置已保存！立刻为你拉取云端记忆...');
+        document.querySelectorAll('.close-btn')[0].onclick();
+        
+        // 保存后拉取云端
+        fetchCloudChat();
+    };
+
+    // 如果配置了Laf网址，开局自动拉取云端记忆
+    if (config.lafUrl) {
+        fetchCloudChat();
+    }
+</script>
+</body>
+</html>
